@@ -5,7 +5,7 @@ export const transactionOperations = {
   getTransactions: async (): Promise<Transaction[]> => {
     const db = await getDB();
     const transactions = await db.getAll('transactions');
-    return transactions.sort((a, b) => 
+    return transactions.sort((a, b) =>
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
   },
@@ -13,7 +13,7 @@ export const transactionOperations = {
   getTransactionsByAgentId: async (agentId: string): Promise<Transaction[]> => {
     const db = await getDB();
     const transactions = await db.getAllFromIndex('transactions', 'by-agent', agentId);
-    return transactions.sort((a, b) => 
+    return transactions.sort((a, b) =>
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
   },
@@ -23,16 +23,29 @@ export const transactionOperations = {
     const id = Math.random().toString(36).substr(2, 9);
     const newTransaction = { ...transaction, id };
 
-    await db.transaction(['transactions', 'agents'], 'readwrite', async (tx) => {
-      await tx.objectStore('transactions').add(newTransaction);
-      const agent = await tx.objectStore('agents').get(transaction.agentId);
-      
-      if (agent) {
-        const modifier = transaction.type === 'deposit' ? 1 : -1;
-        agent.balance += transaction.amount * modifier;
-        await tx.objectStore('agents').put(agent);
-      }
-    });
+    // Start a transaction with 'readwrite' mode
+    const tx = await db.transaction(['transactions', 'agents'], 'readwrite');
+    
+    // Get the object stores
+    const transactionStore = tx.objectStore('transactions');
+    const agentsStore = tx.objectStore('agents');
+
+    // Add the new transaction
+    await transactionStore.add(newTransaction);
+
+    // Retrieve the agent associated with the transaction
+    const agent = await agentsStore.get(transaction.agentId);
+    
+    if (agent) {
+      const modifier = transaction.type === 'deposit' ? 1 : -1;
+      agent.balance += transaction.amount * modifier;
+
+      // Update the agent's balance in the database
+      await agentsStore.put(agent);
+    }
+
+    // Wait for the transaction to complete
+    await tx.done;
 
     return newTransaction;
   },

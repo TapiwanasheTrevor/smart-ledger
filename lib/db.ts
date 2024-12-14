@@ -18,7 +18,6 @@ interface BrokerageDB extends DBSchema {
 const dbPromise = openDB<BrokerageDB>('brokerage-db', 1, {
   upgrade(db) {
     const agentStore = db.createObjectStore('agents', { keyPath: 'id' });
-    
     const transactionStore = db.createObjectStore('transactions', { keyPath: 'id' });
     transactionStore.createIndex('by-agent', 'agentId');
 
@@ -97,7 +96,7 @@ export const dbOperations = {
 
     const modifier = type === 'deposit' ? 1 : -1;
     agent.balance += amount * modifier;
-    
+
     return db.put('agents', agent);
   },
 
@@ -123,16 +122,28 @@ export const dbOperations = {
     const id = Math.random().toString(36).substr(2, 9);
     const newTransaction = { ...transaction, id };
 
-    await db.transaction(['transactions', 'agents'], 'readwrite', async (tx) => {
-      await tx.objectStore('transactions').add(newTransaction);
-      const agent = await tx.objectStore('agents').get(transaction.agentId);
-      
-      if (agent) {
-        const modifier = transaction.type === 'deposit' ? 1 : -1;
-        agent.balance += transaction.amount * modifier;
-        await tx.objectStore('agents').put(agent);
-      }
-    });
+    // Start a transaction with 'readwrite' mode
+    const tx = await db.transaction(['transactions', 'agents'], 'readwrite');
+
+    const transactionStore = tx.objectStore('transactions');
+    const agentsStore = tx.objectStore('agents');
+
+    // Add the new transaction
+    await transactionStore.add(newTransaction);
+
+    // Retrieve the agent associated with the transaction
+    const agent = await agentsStore.get(transaction.agentId);
+    
+    if (agent) {
+      const modifier = transaction.type === 'deposit' ? 1 : -1;
+      agent.balance += transaction.amount * modifier;
+
+      // Update the agent's balance in the database
+      await agentsStore.put(agent);
+    }
+
+    // Commit the transaction
+    await tx.done;
 
     return newTransaction;
   },
